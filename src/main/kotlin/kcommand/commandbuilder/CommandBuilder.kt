@@ -165,7 +165,6 @@ public open class CommandBuilder {
             this.commands.removeAll(commands.values.toSet())
         }
 
-
     /**
      * Adds a command that will run *until* the [condition] is met.
      *
@@ -343,7 +342,6 @@ public open class CommandBuilder {
      */
     public fun loop(execute: CodeBlockContext.() -> Unit): Command =
         +RunCommand({ CodeBlockContext.execute() })
-
 
     /**
      * Adds a command that does nothing for a specified time interval, then completes.
