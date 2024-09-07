@@ -2,6 +2,7 @@
 package kcommand.commandbuilder
 
 import edu.wpi.first.wpilibj2.command.*
+import kcommand.internal.ChargerConditionalCommand
 import kotlin.properties.ReadOnlyProperty
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
@@ -70,6 +71,18 @@ public open class CommandBuilder {
         }
     }
 
+    @PublishedApi
+    internal inline fun getCommandsArray(
+        vararg otherCommands: Command,
+        block: CommandBuilder.() -> Unit
+    ): Array<Command> {
+        val builder = CommandBuilder().apply(block)
+        val commandsSet = otherCommands.toMutableSet() + builder.commands
+        this.commands.removeAll(commandsSet)
+        builder.commandModificationBlocked = true
+        return commandsSet.toTypedArray()
+    }
+
     /**
      * Applies a generic modifier to a command.
      * This function must be used for command decorators(withTimeout, unless, raceWith)
@@ -136,177 +149,6 @@ public open class CommandBuilder {
         +InstantCommand({ CodeBlockContext.execute() })
 
     /**
-     * Adds a command that will run the command onTrue or only if a condition is met.
-     *
-     * Equivalent to a [ConditionalCommand].
-     *
-     * @param condition the condition supplier utilized.
-     * @param onTrue the command ran when the condition returns true.
-     * @param onFalse the command ran when the condition returns false; defaults to an empty command.
-     */
-    public fun runIf(condition: () -> Boolean, onTrue: Command, onFalse: Command = InstantCommand()): Command =
-        ConditionalCommand(onTrue, onFalse, condition).also{
-            +it
-            this.commands.remove(onTrue)
-            this.commands.remove(onFalse)
-        }
-
-    /**
-     * Adds a command that will run the appropriate mapped command, depending on the key given.
-     *
-     * Equivalent to a [SelectCommand].
-     *
-     * @param key: A lambda that gets a generic value, used for choosing an appropriate command.
-     * @param commands: A map between the key and commands to be called.
-     */
-    public fun <T: Any> runWhen(key: () -> T, commands: Map<T, Command>): Command =
-        SelectCommand(commands, key).also{
-            +it
-            this.commands.removeAll(commands.values.toSet())
-        }
-
-    /**
-     * Adds a command that will run *until* the [condition] is met.
-     *
-     * Equivalent to the [Command.until] decorator.
-     *
-     * @param condition the condition to be met
-     * @param command the command to run until [condition] is met
-     */
-    public fun runUntil(condition: () -> Boolean, command: Command): Command =
-        command.until(condition)
-            .also{
-                +it
-                this.commands.remove(command)
-            }
-
-    /**
-     * Adds a command that will run *while* the [condition] is met.
-     *
-     * Equivalent to the [Command.onlyWhile] decorator.
-     *
-     * @param condition the condition to be met
-     * @param command the command to run until [condition] is met
-     */
-    public fun runWhile(condition: () -> Boolean, command: Command): Command =
-        command.onlyWhile(condition)
-            .also{
-                +it
-                this.commands.remove(command)
-            }
-
-    /**
-     * Adds several commands that will run at the same time, all stopping as soon as one finishes.
-     * These commands can either be specified as a function parameter, or as a builder block
-     * within the command builder context [block].
-     *
-     * Equivalent to a [ParallelRaceGroup]
-     *
-     * @param commands commands to run in parallel;
-     * these are automatically removed from the overarching builder(so you can use runOnce/loopUntil).
-     * @param block a builder allowing more parallel commands to be defined and added
-     */
-    public inline fun runParallelUntilOneFinishes(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command {
-        val builder = CommandBuilder().apply(block)
-        val commandsSet = commands.toMutableSet() + builder.commands
-        this.commands.removeAll(commandsSet)
-        builder.commandModificationBlocked = true
-        return +ParallelRaceGroup(*commandsSet.toTypedArray())
-    }
-
-    /**
-     * Adds several commands that will run at the same time, all stopping as soon as the first command specified finishes.
-     * These commands can either be specified as a function parameter, or as a builder block
-     * within the command builder context [block].
-     *
-     * Equivalent to a [ParallelDeadlineGroup].
-     *
-     * @param commands commands to run in parallel;
-     * these are automatically removed from the overarching builder(so you can use runOnce/loopUntil).
-     * @param block a builder allowing more parallel commands to be defined and added
-     */
-    public inline fun runParallelUntilFirstCommandFinishes(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command {
-        val builder = CommandBuilder().apply(block)
-        val commandsSet = commands.toMutableSet() + builder.commands
-        this.commands.removeAll(commandsSet)
-        builder.commandModificationBlocked = true
-        try{
-            val firstCommand = commandsSet.first()
-            val otherCommands = commandsSet - firstCommand
-            return +ParallelDeadlineGroup(firstCommand, *otherCommands.toTypedArray())
-        }catch(e: NoSuchElementException){
-            return +InstantCommand()
-        }
-    }
-
-    /**
-     * Adds several commands that will run at the same time, only finishing once all are complete.
-     * These commands can either be specified as a function parameter, or as a builder block
-     * within the command builder context [block].
-     *
-     * Equivalent to a [ParallelCommandGroup].
-     *
-     * @param commands commands to run in parallel;
-     * these are automatically removed from the overarching builder(so you can use runOnce/loopUntil).
-     * @param block a builder allowing more parallel commands to be defined and added
-     */
-    public inline fun runParallelUntilAllFinish(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command {
-        val builder = CommandBuilder().apply(block)
-        val commandsSet = commands.toMutableSet() + builder.commands
-        this.commands.removeAll(commandsSet)
-        builder.commandModificationBlocked = true
-        return +ParallelCommandGroup(*commandsSet.toTypedArray())
-    }
-
-    /**
-     * Adds several commands that will run one after another.
-     * These commands can either be specified as a function parameter, or as a builder block
-     * within the command builder context [block].
-     *
-     * Equivalent to a [SequentialCommandGroup].
-     *
-     * @param commands explicitly specified commands to be run sequentially;
-     * these are automatically removed from the overarching builder(so you can use runOnce/loopUntil).
-     * @param block a builder to create the commands to run sequentially
-     */
-    public inline fun runSequentially(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command {
-        val builder = CommandBuilder().apply(block)
-        val commandsSet = commands.toMutableSet() + builder.commands
-        this.commands.removeAll(commandsSet)
-        builder.commandModificationBlocked = true
-        return +SequentialCommandGroup(*commandsSet.toTypedArray())
-    }
-
-    /**
-     * Adds a command that will schedule the given commands provided
-     * instead of running them sequentially within the command group itself.
-     *
-     * This is useful for forking off of command groups.
-     *
-     *
-     * @param block a builder to create the commands to run sequentially
-     * @see ScheduleCommand
-     */
-    public inline fun runSeparately(vararg commands: Command, block: CommandBuilder.() -> Unit): Command {
-        val builder = CommandBuilder().apply(block)
-        val commandsSet = commands.toMutableSet() + builder.commands
-        this.commands.removeAll(commandsSet)
-        builder.commandModificationBlocked = true
-        return +ScheduleCommand(*commandsSet.toTypedArray())
-    }
-
-    /**
-     * Adds a command that will run until either the time expires or it completes on its own.
-     *
-     * Equivalent to the [Command.withTimeout] decorator.
-     *
-     * @param command the command to run
-     * @param seconds the maximum allowed runtime of the command
-     */
-    public fun runForDuration(seconds: Number, command: Command): Command =
-        command.withTimeout(seconds.toDouble()).also{ +it }
-
-    /**
      * Adds a command that will run the code block repeatedly *until* the [condition] is met.
      *
      * @param condition the condition to be met
@@ -344,12 +186,171 @@ public open class CommandBuilder {
         +RunCommand({ CodeBlockContext.execute() })
 
     /**
+     * Adds several commands that will run at the same time, all stopping as soon as one finishes.
+     * These commands can either be specified as a function parameter, or as a builder block
+     * within the command builder context [block].
+     *
+     * Equivalent to a [ParallelRaceGroup]
+     *
+     * @param commands commands to run in parallel;
+     * these are automatically removed from the overarching builder(so you can use runOnce/loopUntil).
+     * @param block a builder allowing more parallel commands to be defined and added
+     */
+    public inline fun runParallelUntilOneFinishes(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command =
+        +ParallelRaceGroup(*getCommandsArray(*commands, block=block))
+
+    /**
+     * Adds several commands that will run at the same time, all stopping as soon as the first command specified finishes.
+     * These commands can either be specified as a function parameter, or as a builder block
+     * within the command builder context [block].
+     *
+     * Equivalent to a [ParallelDeadlineGroup].
+     *
+     * @param commands commands to run in parallel;
+     * these are automatically removed from the overarching builder(so you can use runOnce/loopUntil).
+     * @param block a builder allowing more parallel commands to be defined and added
+     * Command
+     */
+    public inline fun runParallelUntilFirstCommandFinishes(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command {
+        val commandsArray = getCommandsArray(*commands, block=block)
+        return if (commandsArray.isNotEmpty()){
+            // drop(1) drops the first element
+            +ParallelDeadlineGroup(commandsArray[0], *commandsArray.drop(1).toTypedArray())
+        } else {
+            +InstantCommand()
+        }
+    }
+
+    /**
+     * Adds several commands that will run at the same time, only finishing once all are complete.
+     * These commands can either be specified as a function parameter, or as a builder block
+     * within the command builder context [block].
+     *
+     * Equivalent to a [ParallelCommandGroup].
+     *
+     * @param commands commands to run in parallel;
+     * these are automatically removed from the overarching builder(so you can use runOnce/loopUntil).
+     * @param block a builder allowing more parallel commands to be defined and added
+     */
+    public inline fun runParallelUntilAllFinish(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command =
+        +ParallelCommandGroup(*getCommandsArray(*commands, block=block))
+
+    /**
+     * Adds several commands that will run one after another.
+     * These commands can either be specified as a function parameter, or as a builder block
+     * within the command builder context [block].
+     *
+     * Equivalent to a [SequentialCommandGroup].
+     *
+     * @param commands explicitly specified commands to be run sequentially
+     * @param block a builder to create the commands to run sequentially
+     */
+    public inline fun runSequence(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command =
+        +SequentialCommandGroup(*getCommandsArray(*commands, block=block))
+
+    /**
+     * Adds commands that run one after another, with a specific timeout.
+     *
+     * @see runSequence
+     */
+    public inline fun runSequenceForDuration(
+        seconds: Number,
+        vararg commands: Command,
+        block: CommandBuilder.() -> Unit
+    ): Command = runSequence(*commands, block=block).modify { it.withTimeout(seconds.toDouble()) }
+
+    /**
+     * Adds commands that run one after another *until* the [condition] turns true.
+     *
+     * @see runSequence
+     */
+    public inline fun runSequenceUntil(
+        noinline condition: () -> Boolean,
+        vararg commands: Command,
+        block: CommandBuilder.() -> Unit
+    ): Command = runSequence(*commands, block=block).modify{ it.until(condition) }
+
+    /**
+     * Adds commands that run one after another *while* the [condition] is true.
+     *
+     * @see runSequence
+     */
+    public inline fun runSequenceWhile(
+        noinline condition: () -> Boolean,
+        vararg commands: Command,
+        block: CommandBuilder.() -> Unit
+    ): Command = runSequence(*commands, block=block).modify { it.onlyWhile(condition) }
+
+    /**
+     * Runs a sequence if the [condition] returns true once.
+     *
+     * ```
+     * buildCommand {
+     *      runSequenceIf({someCondition}) {
+     *         ...
+     *      }.orElseIf({someOtherCondition}) {
+     *          loop{...}
+     *      }.orElse {
+     *          +command
+     *      }
+     * }
+     * ```
+     */
+    public inline fun runSequenceIf(
+        noinline condition: () -> Boolean,
+        vararg commands: Command,
+        block: CommandBuilder.() -> Unit
+    ): ChargerConditionalCommand {
+        val sequentialCommand = runSequence(*commands, block=block)
+        this.commands.remove(sequentialCommand)
+        return +ChargerConditionalCommand(mutableMapOf(condition to sequentialCommand))
+    }
+
+    /**
+     * Adds an else-if condition to a [runSequenceIf] statement.
+     *
+     * The commands in [commands] and [block] are run sequentially.
+     */
+    public inline fun ChargerConditionalCommand.orElseIf(
+        noinline condition: () -> Boolean,
+        vararg commands: Command,
+        block: CommandBuilder.() -> Unit
+    ): ChargerConditionalCommand {
+        this@orElseIf.addCommand(
+            condition,
+            SequentialCommandGroup(*getCommandsArray(*commands, block=block))
+        )
+        return this@orElseIf
+    }
+
+    /**
+     * Adds an else condition to a [runSequenceIf] statement.
+     *
+     * The commands in [commands] and [block] are run sequentially.
+     */
+    public inline fun ChargerConditionalCommand.orElse(
+        vararg commands: Command,
+        block: CommandBuilder.() -> Unit
+    ): Command {
+        this@orElse.setOnFalseCommand(
+            SequentialCommandGroup(*getCommandsArray(*commands, block=block))
+        )
+        return this@orElse
+    }
+
+    /**
      * Adds a command that does nothing for a specified time interval, then completes.
      *
      * Useful if a delay is needed between two commands in a [SequentialCommandGroup].
      */
     public fun wait(seconds: Number): Command =
         +WaitCommand(seconds.toDouble())
+
+    /**
+     * Adds a command that waits forever.
+     */
+    public fun waitForever(): Command =
+        +WaitCommand(Double.POSITIVE_INFINITY)
 
     /**
      * Adds a command that does nothing until a [condition] is met, then completes.

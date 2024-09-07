@@ -2,7 +2,6 @@ package kcommand.commandbuilder
 
 import edu.wpi.first.wpilibj2.command.*
 import kcommand.withLogging
-import kotlin.experimental.ExperimentalTypeInference
 
 /**
  * The entry point for the CommandBuilder DSL (Domain Specific Language).
@@ -82,24 +81,12 @@ public inline fun Subsystem.buildCommand(
     }
 }
 
-
-/**
- * A command request, to be returned within a [BuildCommandScope.loop]
- * or [BuildCommandScope.loopForDuration] block.
- */
-public enum class Request {
-    CONTINUE,
-    BREAK,
-    STOP_COMMAND,
-}
-
 /**
  * A scope exclusive to [buildCommand]; this contains things like end behavior and command requirements
  * which aren't used in other places where a [CommandBuilder] scope is asked for
  * (like runSequentially, runParallelUntilAllFinish, etc.)
  */
 @CommandBuilderMarker
-@OptIn(ExperimentalTypeInference::class)
 public class BuildCommandScope: CommandBuilder() {
     public val requirements: LinkedHashSet<Subsystem> = linkedSetOf()
 
@@ -155,39 +142,4 @@ public class BuildCommandScope: CommandBuilder() {
                 this@BuildCommandScope.stopped = true
             }
         })
-
-    /**
-     * A variant of [CommandBuilder.loop] whose [run] block must return a [Request].
-     *
-     * This allows you to end the entire build command(by returning [Request.STOP_COMMAND])
-     * during runtime, and end the block's execution by returning [Request.BREAK].
-     * To continue like normal, use [Request.CONTINUE].
-     *
-     * This can only be called in the main [buildCommand] block, and not in parallel/sequential blocks.
-     */
-    @OverloadResolutionByLambdaReturnType
-    @JvmName("LoopWithBreakAndReturn")
-    public fun loop(run: CodeBlockContext.() -> Request): Command =
-        object: Command() {
-            init{ +this }
-
-            private var result = Request.CONTINUE
-
-            override fun execute() {
-                result = CodeBlockContext.run()
-                this@BuildCommandScope.stopped = result == Request.STOP_COMMAND
-            }
-
-            override fun isFinished(): Boolean = result != Request.CONTINUE
-        }
-
-    /**
-     * A variant of [CommandBuilder.loopForDuration] whose [run] block must return a [Request].
-     *
-     * @see BuildCommandScope.loop
-     */
-    @OverloadResolutionByLambdaReturnType
-    @JvmName("LoopForWithBreakAndReturn")
-    public fun loopForDuration(seconds: Double, run: CodeBlockContext.() -> Request): Command =
-        loop{ return@loop run() }.modify{ it.withTimeout(seconds) }
 }
