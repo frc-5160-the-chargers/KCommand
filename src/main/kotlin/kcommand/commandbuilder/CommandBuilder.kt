@@ -1,6 +1,7 @@
 @file:Suppress("RedundantVisibilityModifier", "unused")
 package kcommand.commandbuilder
 
+import edu.wpi.first.wpilibj.RobotBase
 import edu.wpi.first.wpilibj2.command.*
 import kcommand.internal.ChargerConditionalCommand
 import kotlin.properties.ReadOnlyProperty
@@ -359,6 +360,20 @@ public open class CommandBuilder {
      */
     public fun waitUntil(condition: () -> Boolean): Command =
         +WaitUntilCommand(condition)
+
+    /**
+     * Adds the commands within [block] only when the command runs on a real robot.
+     */
+    public fun realRobotOnly(block: () -> Unit) {
+        if (RobotBase.isReal()) block()
+    }
+
+    /**
+     * Adds the commands within [block] only when the command runs on a simulated robot.
+     */
+    public fun simOnly(block: () -> Unit) {
+        if (RobotBase.isSimulation()) block()
+    }
 
     /**
      * Creates a value that will refresh once during run;
