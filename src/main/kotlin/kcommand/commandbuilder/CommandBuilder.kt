@@ -3,7 +3,8 @@ package kcommand.commandbuilder
 
 import edu.wpi.first.wpilibj.RobotBase
 import edu.wpi.first.wpilibj2.command.*
-import kcommand.internal.ChargerConditionalCommand
+import kcommand.internal.MutableConditionalCommand
+import kcommand.internal.reportError
 import kotlin.properties.ReadOnlyProperty
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
@@ -49,12 +50,13 @@ public open class CommandBuilder {
     @PublishedApi
     internal var commandModificationBlocked: Boolean = false
 
-    private fun errorDuringRuntimeCommandModification(){
-        require(!commandModificationBlocked){
-            """
+    private fun errorIfCommandsModifiedDuringRuntime(){
+        if (commandModificationBlocked) {
+            reportError(
+                """
+                WARNING: 
                 It seems that you are attempting to add a command to the CommandBuilder during runtime. This is not allowed.
-                Make sure that you don't have any nested runOnce, loop, loopUntil, etc. blocks 
-                within another command-adding block, and no explicit builtCommand receivers are called.
+                Make sure that you don't have any explicit buildCommand receivers in your code.
                 
                 buildCommand{
                     runOnce{
@@ -68,8 +70,10 @@ public open class CommandBuilder {
                         }
                     }
                 } 
-            """.trimIndent()
+                """.trimIndent()
+            )
         }
+
     }
 
     @PublishedApi
@@ -116,9 +120,9 @@ public open class CommandBuilder {
      * }
      * ```
      */
-    public operator fun <C : Command> C.unaryPlus(): C {
-        errorDuringRuntimeCommandModification()
-        commands.add(this)
+    public operator fun <C : Command?> C.unaryPlus(): C {
+        errorIfCommandsModifiedDuringRuntime()
+        if (this != null) commands.add(this)
         return this
     }
 
@@ -134,7 +138,7 @@ public open class CommandBuilder {
      * ```
      */
     public operator fun <C: Command> C.unaryMinus(): C {
-        errorDuringRuntimeCommandModification()
+        errorIfCommandsModifiedDuringRuntime()
         commands.remove(this)
         return this
     }
@@ -214,11 +218,17 @@ public open class CommandBuilder {
      */
     public inline fun runParallelUntilFirstCommandFinishes(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command {
         val commandsArray = getCommandsArray(*commands, block=block)
-        return if (commandsArray.isNotEmpty()){
-            // drop(1) drops the first element
-            +ParallelDeadlineGroup(commandsArray[0], *commandsArray.drop(1).toTypedArray())
+        if (commandsArray.isNotEmpty()){
+            val deadline = commandsArray[0]
+            val otherCommands = (listOf(*commandsArray) - deadline).toTypedArray()
+            if (deadline is MutableConditionalCommand && !deadline.onFalseCommandSet()) {
+                reportError("WARNING: runSequenceIf statements without an orElse block are not allowed to be" +
+                        "the deadline of a parallel deadline(runParallelUntilFirstCommandFinishes) group." +
+                        "Consider adding .orElse{ runOnce{} } to make the deadline more clear.")
+            }
+            return +ParallelDeadlineGroup(deadline, *otherCommands)
         } else {
-            +InstantCommand()
+            return InstantCommand()
         }
     }
 
@@ -301,10 +311,10 @@ public open class CommandBuilder {
         noinline condition: () -> Boolean,
         vararg commands: Command,
         block: CommandBuilder.() -> Unit
-    ): ChargerConditionalCommand {
+    ): MutableConditionalCommand {
         val sequentialCommand = runSequence(*commands, block=block)
         this.commands.remove(sequentialCommand)
-        return +ChargerConditionalCommand(mutableMapOf(condition to sequentialCommand))
+        return +MutableConditionalCommand(mutableMapOf(condition to sequentialCommand))
     }
 
     /**
@@ -312,11 +322,11 @@ public open class CommandBuilder {
      *
      * The commands in [commands] and [block] are run sequentially.
      */
-    public inline fun ChargerConditionalCommand.orElseIf(
+    public inline fun MutableConditionalCommand.orElseIf(
         noinline condition: () -> Boolean,
         vararg commands: Command,
         block: CommandBuilder.() -> Unit
-    ): ChargerConditionalCommand {
+    ): MutableConditionalCommand {
         this@orElseIf.addCommand(
             condition,
             SequentialCommandGroup(*getCommandsArray(*commands, block=block))
@@ -329,7 +339,7 @@ public open class CommandBuilder {
      *
      * The commands in [commands] and [block] are run sequentially.
      */
-    public inline fun ChargerConditionalCommand.orElse(
+    public inline fun MutableConditionalCommand.orElse(
         vararg commands: Command,
         block: CommandBuilder.() -> Unit
     ): Command {

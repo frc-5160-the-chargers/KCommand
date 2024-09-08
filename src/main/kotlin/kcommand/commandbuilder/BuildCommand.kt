@@ -1,6 +1,7 @@
 package kcommand.commandbuilder
 
 import edu.wpi.first.wpilibj2.command.*
+import kcommand.internal.reportError
 import kcommand.withLogging
 
 /**
@@ -103,9 +104,10 @@ public class BuildCommandScope: CommandBuilder() {
      */
     public fun require(vararg requirements: Subsystem){
         if (addingRequirementsLocked){
-            error("""
+            reportError("""
+                WARNING: 
                 It looks like you are attempting to add requirements to the buildCommand while it is running.
-                This is not allowed.
+                This will not work.
                 
                 buildCommand{
                     // correct way to add requirements; outside of any block

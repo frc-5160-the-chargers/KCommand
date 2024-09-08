@@ -51,6 +51,6 @@ public class LoggedCommand(baseCommand: Command, private val logName: String): W
     override fun end(interrupted: Boolean){
         super.end(interrupted)
         booleanLogger("$category/$logName/IsRunning", false)
-        doubleLogger("$category/$logName/ExecutionTime", Timer.getFPGATimestamp() - startTime)
+        doubleLogger("$category/$logName/ExecutionTimeSecs", Timer.getFPGATimestamp() - startTime)
     }
 }

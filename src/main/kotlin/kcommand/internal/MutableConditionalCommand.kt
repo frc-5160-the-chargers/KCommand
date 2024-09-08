@@ -2,15 +2,21 @@ package kcommand.internal
 
 import edu.wpi.first.wpilibj2.command.Command
 import edu.wpi.first.wpilibj2.command.InstantCommand
+import edu.wpi.first.wpilibj2.command.SequentialCommandGroup
 import edu.wpi.first.wpilibj2.command.Subsystem
 
 /**
- * A custom version of [edu.wpi.first.wpilibj2.command.ConditionalCommand]
- * used within the [kcommand.commandbuilder.CommandBuilder].
+ * An internal command class used by the [kcommand.commandbuilder.CommandBuilder]
+ * for the [kcommand.commandbuilder.CommandBuilder.runSequenceIf] API.
+ *
+ * It stores a map of condition suppliers and commands, running the first command whose
+ * respective supplier returns true. Otherwise, it will run the onFalse command.
+ * This command only acts as the backbone for if-else chaining within the CommandBuilder class;
+ * and is unsafe to run by itself.
  */
-public class ChargerConditionalCommand(
+public class MutableConditionalCommand @PublishedApi internal constructor(
     private val conditionCommandMap: MutableMap<() -> Boolean, Command> = mutableMapOf(),
-    private var onFalse: Command = InstantCommand()
+    private var onFalse: Command = InstantCommand(),
 ): Command() {
     private lateinit var selected: Command
 
@@ -23,13 +29,19 @@ public class ChargerConditionalCommand(
         addRequirements(*requirements.toTypedArray())
     }
 
-    public fun addCommand(condition: () -> Boolean, command: Command) {
+    @PublishedApi
+    internal fun addCommand(condition: () -> Boolean, command: Command) {
         conditionCommandMap[condition] = command
     }
 
-    public fun setOnFalseCommand(onFalse: Command){
+    @PublishedApi
+    internal fun setOnFalseCommand(onFalse: Command){
         this.onFalse = onFalse
     }
+
+    @PublishedApi
+    internal fun onFalseCommandSet(): Boolean =
+        onFalse is SequentialCommandGroup // this should always be set to a sequential command group in CommandBuilder
 
     override fun initialize() {
         for ((condition, command) in conditionCommandMap){
@@ -40,7 +52,7 @@ public class ChargerConditionalCommand(
             }
         }
         selected = onFalse
-        onFalse.initialize()
+        selected.initialize()
     }
 
     override fun execute(): Unit = selected.execute()

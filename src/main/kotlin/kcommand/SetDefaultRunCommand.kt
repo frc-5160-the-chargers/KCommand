@@ -10,13 +10,13 @@ import edu.wpi.first.wpilibj2.command.Subsystem
  *
  * @see Subsystem.setDefaultCommand
  */
-public fun <S: Subsystem> S.setDefaultRunCommand(
+public fun Subsystem.setDefaultRunCommand(
     vararg requirements: Subsystem,
-    endBehavior: S.(Boolean) -> Unit = {},
-    toRun: S.() -> Unit
+    endBehavior: (Boolean) -> Unit = {},
+    toRun: () -> Unit
 ){
-    defaultCommand =
-        RunCommand({toRun()}, this, *requirements)
+    this.defaultCommand =
+        RunCommand(toRun, this, *requirements)
             .finallyDo{ interrupted -> endBehavior(interrupted) }
             .withName("Default Command of " + this::class.simpleName)
 }
