@@ -60,10 +60,10 @@ public inline fun buildCommand(
     builder.addingRequirementsLocked = true
 
     return SequentialCommandGroup(*subCommands)
-        .withName(name)
         .until{ builder.stopped }
         .finallyDo(builder.endBehavior)
         .withLogging("$name/overallCommand")
+        .withName(name)
 }
 
 /**
@@ -71,11 +71,11 @@ public inline fun buildCommand(
 */
 public inline fun Subsystem.buildCommand(
     name: String = "Generic BuildCommand of " + getName(),
-    logIndividualCommands: Boolean = false,
+    log: Boolean = false,
     block: BuildCommandScope.() -> Unit
 ): Command {
     val subsystem = this
-    return kcommand.commandbuilder.buildCommand(name, logIndividualCommands){
+    return kcommand.commandbuilder.buildCommand(name, log){
         require(subsystem)
         block()
     }

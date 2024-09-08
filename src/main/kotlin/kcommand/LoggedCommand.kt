@@ -8,6 +8,9 @@ import edu.wpi.first.wpilibj2.command.WrapperCommand
 /**
  * Creates a command that automatically logs its execution time
  * and whether it is running or not.
+ *
+ * To log [kcommand.commandbuilder.buildCommand]s, pass in the log=true parameter
+ * in the parameter list instead.
  */
 public fun Command.withLogging(logName: String): LoggedCommand =
     LoggedCommand(this, logName)

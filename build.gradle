@@ -58,27 +58,20 @@ kotlin {
 publishing {
     publications {
         maven(MavenPublication) {
+            from components.kotlin
             groupId = 'kcommand'
             artifactId = 'KCommand'
             version = "1.0.0-Beta1"
-            from components.kotlin
 
             artifact(sourcesJar)
         }
     }
 
-    /*
     repositories {
         maven {
-            name = "KCommand" //  optional target repository name
-            url = "http://my.org.server/repo/url"
-            credentials {
-                username = 'alice'
-                password = 'my-password'
-            }
+            url "https://jitpack.io"
         }
     }
-    */
 }
 
 // Defining my dependencies. In this case, WPILib (+ friends), and vendor libraries.
@@ -104,9 +97,6 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
-
-group = "kcommand"
-version = "1.0.0-Beta1"
 
 allprojects {
     test {
