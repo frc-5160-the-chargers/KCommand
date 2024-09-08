@@ -1,3 +1,11 @@
+buildscript {
+    repositories {
+        maven {
+            url = 'https://frcmaven.wpi.edu/artifactory/ex-mvn'
+        }
+    }
+}
+
 plugins {
     id "java-library"
     id "edu.wpi.first.GradleRIO" version "2024.3.2"
@@ -57,9 +65,9 @@ kotlin {
 
 publishing {
     publications {
-        maven(MavenPublication) {
+        release(MavenPublication) {
             from components.kotlin
-            groupId = 'kcommand'
+            groupId = 'com.github.frc-5160-the-chargers'
             artifactId = 'KCommand'
             version = "1.0.0-Beta1"
 
