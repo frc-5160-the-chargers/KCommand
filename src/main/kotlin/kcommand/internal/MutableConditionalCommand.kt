@@ -12,7 +12,7 @@ import edu.wpi.first.wpilibj2.command.Subsystem
  * It stores a map of condition suppliers and commands, running the first command whose
  * respective supplier returns true. Otherwise, it will run the onFalse command.
  * This command only acts as the backbone for if-else chaining within the CommandBuilder class;
- * and is unsafe to run by itself.
+ * and should not be instantiated directly.
  */
 public class MutableConditionalCommand @PublishedApi internal constructor(
     private val conditionCommandMap: MutableMap<() -> Boolean, Command> = mutableMapOf(),

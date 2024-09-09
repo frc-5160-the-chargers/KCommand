@@ -5,7 +5,7 @@ import edu.wpi.first.wpilibj.RobotBase
 import edu.wpi.first.wpilibj2.command.*
 import kcommand.internal.MutableConditionalCommand
 import kcommand.internal.reportError
-import kotlin.properties.ReadOnlyProperty
+import kotlin.collections.LinkedHashSet
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
 
@@ -44,14 +44,22 @@ public annotation class CommandBuilderMarker
  */
 @CommandBuilderMarker
 public open class CommandBuilder {
+    // PublishedApi makes internal(only visible within library code) accessible by inline methods
+    // LinkedHashSet keeps commands in order, but also ensures they're not added multiple times
     @PublishedApi
-    internal var commands: LinkedHashSet<Command> = linkedSetOf() // LinkedHashSet keeps commands in order, but also ensures they're not added multiple times
+    internal var commands: LinkedHashSet<Command> = linkedSetOf()
 
+    // Used to prevent requirement adding/command modification during runtime
+    // This is already prevented with the DSL scope control system; however, this acts as an extra safety net in case explicit receivers are used.
     @PublishedApi
-    internal var commandModificationBlocked: Boolean = false
+    internal var lockMutation: Boolean = false
+
+    // stores all getOnceDuringRun delegates so that they can have their value reset before the command runs.
+    @PublishedApi
+    internal val allDelegates: MutableList<GetOnceDuringRunDelegate<*>> = mutableListOf()
 
     private fun errorIfCommandsModifiedDuringRuntime(){
-        if (commandModificationBlocked) {
+        if (lockMutation) {
             reportError(
                 """
                 WARNING: 
@@ -73,7 +81,6 @@ public open class CommandBuilder {
                 """.trimIndent()
             )
         }
-
     }
 
     @PublishedApi
@@ -82,22 +89,22 @@ public open class CommandBuilder {
         block: CommandBuilder.() -> Unit
     ): Array<Command> {
         val builder = CommandBuilder().apply(block)
+        this.allDelegates.addAll(builder.allDelegates) // adds getOnceDuringRun delegates to the main builder
         val commandsSet = otherCommands.toMutableSet() + builder.commands
         this.commands.removeAll(commandsSet)
-        builder.commandModificationBlocked = true
+        builder.lockMutation = true
         return commandsSet.toTypedArray()
     }
 
     /**
      * Applies a generic modifier to a command.
      * This function must be used for command decorators(withTimeout, unless, raceWith)
-     * in order for them to be actually applied.
+     * in order for them to be applied to command blocks.
      * For instance:
      *
      * ```
      * buildCommand{
      *      loop{ println("hi") }.modify{ it.withTimeout(5) }
-     *
      * }
      */
     public fun Command.modify(modifier: (Command) -> Command): Command {
@@ -109,7 +116,6 @@ public open class CommandBuilder {
 
     /**
      * Adds a single command to be run until its completion.
-     * Usage Example:
      * ```
      * class ArmCommand(val angle: Angle, val arm: Arm): Command(){...}
      *
@@ -127,19 +133,11 @@ public open class CommandBuilder {
     }
 
     /**
-     * Returns a command, then removes it from the set of commands within the [CommandBuilder].
-     *
-     * ```
-     * buildCommand{
-     *    val command by getOnceDuringRun{
-     *      -runOnce{ doSomethingHere()} // will no longer be added to the command builder
-     *    }
-     * }
-     * ```
+     * Returns a command, then removes it from the set of commands within the [CommandBuilder] (if it exists).
      */
-    public operator fun <C: Command> C.unaryMinus(): C {
+    public operator fun <C: Command?> C.unaryMinus(): C {
         errorIfCommandsModifiedDuringRuntime()
-        commands.remove(this)
+        if (this != null) commands.remove(this)
         return this
     }
 
@@ -197,8 +195,7 @@ public open class CommandBuilder {
      *
      * Equivalent to a [ParallelRaceGroup]
      *
-     * @param commands commands to run in parallel;
-     * these are automatically removed from the overarching builder(so you can use runOnce/loopUntil).
+     * @param commands commands to run in parallel
      * @param block a builder allowing more parallel commands to be defined and added
      */
     public inline fun runParallelUntilOneFinishes(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command =
@@ -211,8 +208,7 @@ public open class CommandBuilder {
      *
      * Equivalent to a [ParallelDeadlineGroup].
      *
-     * @param commands commands to run in parallel;
-     * these are automatically removed from the overarching builder(so you can use runOnce/loopUntil).
+     * @param commands commands to run in parallel
      * @param block a builder allowing more parallel commands to be defined and added
      * Command
      */
@@ -222,7 +218,7 @@ public open class CommandBuilder {
             val deadline = commandsArray[0]
             val otherCommands = (listOf(*commandsArray) - deadline).toTypedArray()
             if (deadline is MutableConditionalCommand && !deadline.onFalseCommandSet()) {
-                reportError("WARNING: runSequenceIf statements without an orElse block are not allowed to be" +
+                error("WARNING: runSequenceIf statements without an orElse block are not allowed to be" +
                         "the deadline of a parallel deadline(runParallelUntilFirstCommandFinishes) group." +
                         "Consider adding .orElse{ runOnce{} } to make the deadline more clear.")
             }
@@ -240,7 +236,6 @@ public open class CommandBuilder {
      * Equivalent to a [ParallelCommandGroup].
      *
      * @param commands commands to run in parallel;
-     * these are automatically removed from the overarching builder(so you can use runOnce/loopUntil).
      * @param block a builder allowing more parallel commands to be defined and added
      */
     public inline fun runParallelUntilAllFinish(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command =
@@ -260,7 +255,8 @@ public open class CommandBuilder {
         +SequentialCommandGroup(*getCommandsArray(*commands, block=block))
 
     /**
-     * Adds commands that run one after another, with a specific timeout.
+     * Adds commands that run one after another,
+     * stopping all of them after the duration expires.
      *
      * @see runSequence
      */
@@ -293,7 +289,7 @@ public open class CommandBuilder {
     ): Command = runSequence(*commands, block=block).modify { it.onlyWhile(condition) }
 
     /**
-     * Runs a sequence if the [condition] returns true once.
+     * Runs a sequence if the [condition] returns true during runtime.
      *
      * ```
      * buildCommand {
@@ -374,31 +370,30 @@ public open class CommandBuilder {
     /**
      * Adds the commands within [block] only when the command runs on a real robot.
      */
-    public fun realRobotOnly(block: () -> Unit) {
+    public inline fun realRobotOnly(block: () -> Unit) {
         if (RobotBase.isReal()) block()
     }
 
     /**
      * Adds the commands within [block] only when the command runs on a simulated robot.
      */
-    public fun simOnly(block: () -> Unit) {
+    public inline fun simOnly(block: () -> Unit) {
         if (RobotBase.isSimulation()) block()
     }
 
     /**
      * Creates a value that will refresh once during run;
      * at the point of which this statement is placed within the command.
-     *
-     * In order to do this, read-only properties(val)
-     * within the command builder block have their getValue function "delegated" by this function.
+     * Works for vars and vals.
      *
      * See [here](https://kotlinlang.org/docs/delegated-properties.html#standard-delegates)
      * for an explanation of property delegates.
      *
+     * Unfortunately, getOnceDuringRun does not support nullable variables at this moment.
      * ```
      * val command = buildCommand{
      *      // this fetches the value of armStartingPosition when the buildCommand is created
-     *      // this means that p2 will not refresh itself when the command runs, unlike armStartingPosition.
+     *      // this means that p2 will not refresh when the command runs.
      *      val p2 = arm.position
      *
      *      // this, on the other hand, is valid.
@@ -412,35 +407,28 @@ public open class CommandBuilder {
      *      }
      * }
      */
-    public fun <T : Any> getOnceDuringRun(get: CodeBlockContext.() -> T) : ReadOnlyProperty<Any?, T> =
-        object: ReadWriteProperty<Any?, T> {
-            private lateinit var value: T
+    public fun <T : Any> getOnceDuringRun(get: CodeBlockContext.() -> T) : ReadWriteProperty<Any?, T> =
+        GetOnceDuringRunDelegate { CodeBlockContext.get() }
 
-            private var hasInitialized: Boolean = false
+    public inner class GetOnceDuringRunDelegate<T: Any>(private val get: () -> T): ReadWriteProperty<Any?, T> {
+        private var value: T? = null
 
-            private fun initializeValue() {
-                value = CodeBlockContext.get()
-                hasInitialized = true
-            }
+        private fun initializeValue() { if (value == null) value = get() }
 
-            init {
-                // Add a new command that initializes this value in its initialize() function.
-                +InstantCommand({ if (!hasInitialized) initializeValue() })
-                    // sets hasInitialized to false when command ends,
-                    // so that the value can re-initialize when the buildCommand is executed again.
-                    .finallyDo{ _ -> hasInitialized = false }
-            }
+        public fun reset() { value = null }
 
-            override fun getValue(thisRef: Any?, property: KProperty<*>): T =
-                try {
-                    value
-                } catch (e: UninitializedPropertyAccessException) { // If value is tried to be used before the initializer command runs (for example, by another command running in parallel), then initialize it immediately.
-                    initializeValue()
-                    value
-                }
-
-            override fun setValue(thisRef: Any?, property: KProperty<*>, value: T) {
-                this.value = value
-            }
+        init {
+            allDelegates.add(this)
+            +InstantCommand(::initializeValue)
         }
+
+        override fun getValue(thisRef: Any?, property: KProperty<*>): T {
+            if (value == null) initializeValue()
+            return value!!
+        }
+
+        override fun setValue(thisRef: Any?, property: KProperty<*>, value: T) {
+            this.value = value
+        }
+    }
 }

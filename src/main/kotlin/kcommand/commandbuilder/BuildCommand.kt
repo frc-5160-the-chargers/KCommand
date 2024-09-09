@@ -7,16 +7,17 @@ import kcommand.withLogging
 /**
  * The entry point for the CommandBuilder DSL (Domain Specific Language).
  *
- *
  * See [here](https://kotlinlang.org/docs/type-safe-builders.html#how-it-works)
  * for an explanation of DSLs and how they are built.
  *
+ * Note: NEVER use an explicit buildCommand receiver(this@buildCommand) within this DSL.
+ *
  * ```
  * val armCommand: Command = buildCommand{
- *      require(arm) // adds requirements across the entire command group
+ *      require(arm) // adds subsystem requirements
  *
  *      // equivalent to an InstantCommand within a SequentialCommandGroup
- *      runOnce{ // requirements of the entire command group can also be added here
+ *      runOnce{
  *          armSubsystem.resetEncoders()
  *      }
  *
@@ -24,7 +25,7 @@ import kcommand.withLogging
  *      val pidController = UnitSuperPIDController(...)
  *      // getOnceDuringRun acts as a value that is refreshed once every time the command is scheduled;
  *      // order is synchronous
- *      val armCurrentPosition by getOnceDuringRun{arm.distalAngle}
+ *      val armCurrentPosition by getOnceDuringRun{ arm.distalAngle }
  *
  *      // loops through the block below until the condition is met
  *      loopUntil(condition = { abs(pidController.target - arm.distalAngle) < 0.1 }){
@@ -43,25 +44,24 @@ public inline fun buildCommand(
     block: BuildCommandScope.() -> Unit
 ): Command {
     val builder = BuildCommandScope().apply(block)
+    builder.lockMutation = true
 
     val subCommands = builder.commands.map{
         if (log) it.withLogging("$name/${it.name}") else it
     }.toTypedArray()
+    subCommands[0] = object: WrapperCommand(subCommands[0]) {
+        init {
+            addRequirements(*builder.requirements.toTypedArray())
+        }
 
-    if (builder.requirements.size > 0) {
-        // adds the builder's requirements to the first command
-        subCommands[0] = object: WrapperCommand(subCommands[0]) {
-            init {
-                addRequirements(*builder.requirements.toTypedArray())
-            }
+        override fun initialize() {
+            builder.allDelegates.forEach{ it.reset() } // reset all getOnceDuringRun delegates before runtime
+            super.initialize()
         }
     }
 
-    builder.commandModificationBlocked = true
-    builder.addingRequirementsLocked = true
-
     return SequentialCommandGroup(*subCommands)
-        .until{ builder.stopped }
+        .until{ builder.entireCommandStopped }
         .finallyDo(builder.endBehavior)
         .withLogging("$name/overallCommand")
         .withName(name)
@@ -71,7 +71,7 @@ public inline fun buildCommand(
 * Creates a [buildCommand] that automatically requires a subsystem.
 */
 public inline fun Subsystem.buildCommand(
-    name: String = "Generic BuildCommand of " + getName(),
+    name: String = "Unnamed BuildCommand of " + this.name,
     log: Boolean = false,
     block: BuildCommandScope.() -> Unit
 ): Command {
@@ -89,26 +89,27 @@ public inline fun Subsystem.buildCommand(
  */
 @CommandBuilderMarker
 public class BuildCommandScope: CommandBuilder() {
-    public val requirements: LinkedHashSet<Subsystem> = linkedSetOf()
+    // PublishedApi internal makes an internal value(only visible within this project)
+    // accessible via inline functions
+    @PublishedApi
+    internal val requirements: LinkedHashSet<Subsystem> = linkedSetOf()
 
-    public var addingRequirementsLocked: Boolean = false
+    @PublishedApi
+    internal var entireCommandStopped: Boolean = false
 
-    public var stopped: Boolean = false
-        private set
-
-    public var endBehavior: (Boolean) -> Unit = {}
-        private set
+    @PublishedApi
+    internal var endBehavior: (Boolean) -> Unit = {}
 
     /**
      * Adds subsystems that are required across the entire [buildCommand].
      */
     public fun require(vararg requirements: Subsystem){
-        if (addingRequirementsLocked){
+        if (lockMutation){
             reportError("""
                 WARNING: 
                 It looks like you are attempting to add requirements to the buildCommand while it is running.
-                This will not work.
-                
+                This only happens if you are using an explicit buildCommand receiver(I.E this@buildCommand),
+                which should never be used.
                 buildCommand{
                     // correct way to add requirements; outside of any block
                     require(...)
@@ -127,7 +128,10 @@ public class BuildCommandScope: CommandBuilder() {
     }
 
     /**
-     * Runs the function block when the [buildCommand] is finished.
+     * Runs the function block when the [buildCommand] is finished,
+     * regardless of it being interrupted or not.
+     *
+     * The boolean parameter is whether the command was interrupted or not.
      */
     public fun onEnd(run: (Boolean) -> Unit){
         endBehavior = run
@@ -136,12 +140,13 @@ public class BuildCommandScope: CommandBuilder() {
     /**
      * Stops the entire [buildCommand] if the condition is met;
      * otherwise, continues execution.
+     *
      * Code within an [onEnd] block will still be run.
      */
     public fun stopIf(condition: () -> Boolean): Command =
         +InstantCommand({
             if (condition()){
-                this@BuildCommandScope.stopped = true
+                this@BuildCommandScope.entireCommandStopped = true
             }
         })
 }
