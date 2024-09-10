@@ -198,7 +198,7 @@ public open class CommandBuilder {
      * @param commands commands to run in parallel
      * @param block a builder allowing more parallel commands to be defined and added
      */
-    public inline fun runParallelUntilOneFinishes(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command =
+    public inline fun parallelUntilOneFinishes(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command =
         +ParallelRaceGroup(*getCommandsArray(*commands, block=block))
 
     /**
@@ -212,14 +212,14 @@ public open class CommandBuilder {
      * @param block a builder allowing more parallel commands to be defined and added
      * Command
      */
-    public inline fun runParallelUntilFirstCommandFinishes(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command {
+    public inline fun parallelUntilFirstFinishes(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command {
         val commandsArray = getCommandsArray(*commands, block=block)
         if (commandsArray.isNotEmpty()){
             val deadline = commandsArray[0]
             val otherCommands = (listOf(*commandsArray) - deadline).toTypedArray()
             if (deadline is MutableConditionalCommand && !deadline.onFalseCommandSet()) {
-                error("WARNING: runSequenceIf statements without an orElse block are not allowed to be" +
-                        "the deadline of a parallel deadline(runParallelUntilFirstCommandFinishes) group." +
+                error("runSequenceIf statements without an orElse block are not allowed to be" +
+                        "the deadline of a parallel deadline(parallelUntilFirstFinishes) block." +
                         "Consider adding .orElse{ runOnce{} } to make the deadline more clear.")
             }
             return +ParallelDeadlineGroup(deadline, *otherCommands)
@@ -238,7 +238,7 @@ public open class CommandBuilder {
      * @param commands commands to run in parallel;
      * @param block a builder allowing more parallel commands to be defined and added
      */
-    public inline fun runParallelUntilAllFinish(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command =
+    public inline fun parallelUntilAllFinish(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command =
         +ParallelCommandGroup(*getCommandsArray(*commands, block=block))
 
     /**
