@@ -22,7 +22,7 @@ import kcommand.withLogging
  *      }
  *
  *      // variable initialization is allowed, since the block is essentially a lambda function
- *      val pidController = UnitSuperPIDController(...)
+ *      val pidController = PIDController(...)
  *      // getOnceDuringRun acts as a value that is refreshed once every time the command is scheduled;
  *      // order is synchronous
  *      val armCurrentPosition by getOnceDuringRun{ arm.distalAngle }

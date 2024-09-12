@@ -49,7 +49,7 @@ public open class CommandBuilder {
     @PublishedApi
     internal var commands: LinkedHashSet<Command> = linkedSetOf()
 
-    // Used to prevent requirement adding/command modification during runtime
+    // Used to prevent adding requirements and command modification during runtime
     // This is already prevented with the DSL scope control system; however, this acts as an extra safety net in case explicit receivers are used.
     @PublishedApi
     internal var lockMutation: Boolean = false
@@ -90,9 +90,9 @@ public open class CommandBuilder {
     ): Array<Command> {
         val builder = CommandBuilder().apply(block)
         this.allDelegates.addAll(builder.allDelegates) // adds getOnceDuringRun delegates to the main builder
+        builder.lockMutation = true
         val commandsSet = otherCommands.toMutableSet() + builder.commands
         this.commands.removeAll(commandsSet)
-        builder.lockMutation = true
         return commandsSet.toTypedArray()
     }
 
@@ -190,10 +190,11 @@ public open class CommandBuilder {
 
     /**
      * Adds several commands that will run at the same time, all stopping as soon as one finishes.
-     * These commands can either be specified as a function parameter, or as a builder block
-     * within the command builder context [block].
      *
-     * Equivalent to a [ParallelRaceGroup]
+     * The [block] below has the context of a [CommandBuilder], meaning that adding commands
+     * via context methods or the + operator within will add them to the respective parallel command.
+     *
+     * Equivalent to a [ParallelRaceGroup].
      *
      * @param commands commands to run in parallel
      * @param block a builder allowing more parallel commands to be defined and added
@@ -202,25 +203,31 @@ public open class CommandBuilder {
         +ParallelRaceGroup(*getCommandsArray(*commands, block=block))
 
     /**
-     * Adds several commands that will run at the same time, all stopping as soon as the first command specified finishes.
-     * These commands can either be specified as a function parameter, or as a builder block
-     * within the command builder context [block].
+     * Adds several commands that will run at the same time, all stopping as soon as
+     * the first command specified (the lead) finishes.
+     * **Do not use getOnceDuringRun statements in this block.**
+     *
+     * The [block] below has the context of a [CommandBuilder], meaning that adding commands
+     * via context methods or the + operator within will add them to the respective parallel command.
      *
      * Equivalent to a [ParallelDeadlineGroup].
      *
      * @param commands commands to run in parallel
      * @param block a builder allowing more parallel commands to be defined and added
-     * Command
      */
-    public inline fun parallelUntilFirstFinishes(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command {
+    public inline fun parallelUntilLeadFinishes(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command {
         val commandsArray = getCommandsArray(*commands, block=block)
         if (commandsArray.isNotEmpty()){
             val deadline = commandsArray[0]
             val otherCommands = (listOf(*commandsArray) - deadline).toTypedArray()
             if (deadline is MutableConditionalCommand && !deadline.onFalseCommandSet()) {
+                // we want this to error on the real robot; thus we don't use reportError
                 error("runSequenceIf statements without an orElse block are not allowed to be" +
                         "the deadline of a parallel deadline(parallelUntilFirstFinishes) block." +
                         "Consider adding .orElse{ runOnce{} } to make the deadline more clear.")
+            }else if (deadline is InstantCommand) {
+                error("The deadline of a parallelUntilBelowFinishes block(the scope method listed right below the statement)" +
+                        "cannot be an InstantCommand or a getOnceDuringRun delegate.")
             }
             return +ParallelDeadlineGroup(deadline, *otherCommands)
         } else {
@@ -230,8 +237,9 @@ public open class CommandBuilder {
 
     /**
      * Adds several commands that will run at the same time, only finishing once all are complete.
-     * These commands can either be specified as a function parameter, or as a builder block
-     * within the command builder context [block].
+     *
+     * The [block] below has the context of a [CommandBuilder], meaning that adding commands
+     * via context methods or the + operator within will add them to the respective parallel command.
      *
      * Equivalent to a [ParallelCommandGroup].
      *
