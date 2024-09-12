@@ -40,7 +40,7 @@ public class MutableConditionalCommand @PublishedApi internal constructor(
     }
 
     @PublishedApi
-    internal fun onFalseCommandSet(): Boolean =
+    internal fun onFalseCommandWasSet(): Boolean =
         onFalse is SequentialCommandGroup // this should always be set to a sequential command group in CommandBuilder
 
     override fun initialize() {

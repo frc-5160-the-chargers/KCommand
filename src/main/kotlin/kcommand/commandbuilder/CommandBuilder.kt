@@ -199,8 +199,13 @@ public open class CommandBuilder {
      * @param commands commands to run in parallel
      * @param block a builder allowing more parallel commands to be defined and added
      */
-    public inline fun parallelUntilOneFinishes(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command =
-        +ParallelRaceGroup(*getCommandsArray(*commands, block=block))
+    public inline fun parallelUntilOneFinishes(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command{
+        val allCommands = getCommandsArray(*commands, block=block)
+        if (allCommands.any{ it is InstantCommand }){
+            error("InstantCommands(or properties delegated by getOnceDuringRun) are not allowed in a parallelUntilOneFinishes block.")
+        }
+        return +ParallelRaceGroup(*allCommands)
+    }
 
     /**
      * Adds several commands that will run at the same time, all stopping as soon as
@@ -220,13 +225,13 @@ public open class CommandBuilder {
         if (commandsArray.isNotEmpty()){
             val deadline = commandsArray[0]
             val otherCommands = (listOf(*commandsArray) - deadline).toTypedArray()
-            if (deadline is MutableConditionalCommand && !deadline.onFalseCommandSet()) {
-                // we want this to error on the real robot; thus we don't use reportError
+            // we want these to error on the real robot; thus we don't use reportError
+            if (deadline is MutableConditionalCommand && !deadline.onFalseCommandWasSet()) {
                 error("runSequenceIf statements without an orElse block are not allowed to be" +
-                        "the deadline of a parallel deadline(parallelUntilFirstFinishes) block." +
-                        "Consider adding .orElse{ runOnce{} } to make the deadline more clear.")
+                        "the first command/deadline of a parallelUntilLeadFinishes block." +
+                        "Consider adding .orElse{ runOnce{} } at the end to make the deadline more clear.")
             }else if (deadline is InstantCommand) {
-                error("The deadline of a parallelUntilBelowFinishes block(the scope method listed right below the statement)" +
+                error("The first command/deadline of a parallelUntilLeadFinishes block" +
                         "cannot be an InstantCommand or a getOnceDuringRun delegate.")
             }
             return +ParallelDeadlineGroup(deadline, *otherCommands)
