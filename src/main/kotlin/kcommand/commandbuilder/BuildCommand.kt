@@ -2,7 +2,7 @@ package kcommand.commandbuilder
 
 import edu.wpi.first.wpilibj2.command.*
 import kcommand.internal.reportError
-import kcommand.withLogging
+import kcommand.withLog
 
 /**
  * The entry point for the CommandBuilder DSL (Domain Specific Language).
@@ -46,16 +46,17 @@ public inline fun buildCommand(
     val builder = BuildCommandScope().apply(block)
     builder.lockMutation = true
 
-    val subCommands = builder.commands.map{
-        if (log) it.withLogging("$name/${it.name}") else it
-    }.toTypedArray()
+    val subCommands = builder.commands
+        .map { if (log) it.withLog("$name/${it.name}") else it }
+        .toTypedArray()
+    // modifies the first command to add requirements and reset getOnceDuringRun delegates
     subCommands[0] = object: WrapperCommand(subCommands[0]) {
         init {
             addRequirements(*builder.requirements.toTypedArray())
         }
 
         override fun initialize() {
-            builder.allDelegates.forEach{ it.reset() } // reset all getOnceDuringRun delegates before runtime
+            builder.allDelegates.forEach{ it.reset() }
             super.initialize()
         }
     }
@@ -63,8 +64,8 @@ public inline fun buildCommand(
     return SequentialCommandGroup(*subCommands)
         .until{ builder.entireCommandStopped }
         .finallyDo(builder.endBehavior)
-        .withLogging("$name/overallCommand")
         .withName(name)
+        .withLog()
 }
 
 /**

@@ -6,17 +6,20 @@ import edu.wpi.first.wpilibj2.command.Command
 import edu.wpi.first.wpilibj2.command.WrapperCommand
 
 /**
- * Creates a command that automatically logs its execution time
- * and whether it is running or not.
- *
- * To log [kcommand.commandbuilder.buildCommand]s, pass in the log=true parameter
- * in the parameter list instead.
+ * Infix syntax to create a [LoggedCommand].
  */
-public fun Command.withLogging(logName: String): LoggedCommand =
+public fun Command.withLog(logName: String = this.name): LoggedCommand =
     LoggedCommand(this, logName)
 
 /**
- * A command that automatically logs start/end times and whether the command is running or not.
+ * A command that automatically logs execution time
+ * and whether the command itself is active or not.
+ *
+ * To log [kcommand.commandbuilder.buildCommand]s, pass in the log=true parameter
+ * in the parameter list instead.
+ *
+ * By default, this logs to smart dashboard; if you want to change this, call the
+ * [configure] method within the robotInit() method.
  */
 public class LoggedCommand(baseCommand: Command, private val logName: String): WrapperCommand(baseCommand) {
     public companion object {
@@ -26,11 +29,11 @@ public class LoggedCommand(baseCommand: Command, private val logName: String): W
 
         public fun configure(
             logCommandRunning: (String, Boolean) -> Unit,
-            logCommandExecutionTime: (String, Double) -> Unit,
+            logExecutionTime: (String, Double) -> Unit,
             category: String = "Commands"
         ) {
             this.booleanLogger = logCommandRunning
-            this.doubleLogger = logCommandExecutionTime
+            this.doubleLogger = logExecutionTime
             this.category = category
         }
     }
