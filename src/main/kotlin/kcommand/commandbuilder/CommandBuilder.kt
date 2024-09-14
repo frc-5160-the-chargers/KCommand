@@ -199,7 +199,7 @@ public open class CommandBuilder {
      * @param commands commands to run in parallel
      * @param block a builder allowing more parallel commands to be defined and added
      */
-    public inline fun parallelUntilOneFinishes(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command{
+    public inline fun parallelUntilOneEnds(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command{
         val allCommands = getCommandsArray(*commands, block=block)
         if (allCommands.any{ it is InstantCommand }){
             error("InstantCommands(or properties delegated by getOnceDuringRun) are not allowed in a parallelUntilOneFinishes block.")
@@ -209,7 +209,7 @@ public open class CommandBuilder {
 
     /**
      * Adds several commands that will run at the same time, all stopping as soon as
-     * the first command specified (the lead) finishes.
+     * the first command specified (the leader) finishes.
      * **Do not use getOnceDuringRun statements in this block.**
      *
      * The [block] below has the context of a [CommandBuilder], meaning that adding commands
@@ -220,7 +220,7 @@ public open class CommandBuilder {
      * @param commands commands to run in parallel
      * @param block a builder allowing more parallel commands to be defined and added
      */
-    public inline fun parallelUntilLeadFinishes(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command {
+    public inline fun parallelUntilLeadEnds(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command {
         val commandsArray = getCommandsArray(*commands, block=block)
         if (commandsArray.isNotEmpty()){
             val deadline = commandsArray[0]
@@ -251,7 +251,7 @@ public open class CommandBuilder {
      * @param commands commands to run in parallel;
      * @param block a builder allowing more parallel commands to be defined and added
      */
-    public inline fun parallelUntilAllFinish(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command =
+    public inline fun parallelUntilAllEnd(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command =
         +ParallelCommandGroup(*getCommandsArray(*commands, block=block))
 
     /**

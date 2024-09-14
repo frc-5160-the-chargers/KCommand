@@ -1,5 +1,6 @@
 package kcommand.commandbuilder
 
+import edu.wpi.first.wpilibj.DriverStation
 import edu.wpi.first.wpilibj2.command.*
 import kcommand.internal.reportError
 import kcommand.withLog
@@ -39,10 +40,14 @@ import kcommand.withLog
  * @param block The entry point to the DSL. Has the context of [CommandBuilder].
  */
 public inline fun buildCommand(
-    name: String = "Unnamed BuildCommand",
+    name: String? = null,
     log: Boolean = false,
     block: BuildCommandScope.() -> Unit
 ): Command {
+    if (name == null && log) {
+        DriverStation.reportWarning("Warning: a buildCommand has the log = true property " +
+            "but no name. All logged buildCommands should have a unique name.", true)
+    }
     val builder = BuildCommandScope().apply(block)
     builder.lockMutation = true
 
@@ -64,8 +69,8 @@ public inline fun buildCommand(
     return SequentialCommandGroup(*subCommands)
         .until{ builder.entireCommandStopped }
         .finallyDo(builder.endBehavior)
-        .withName(name)
-        .withLog()
+        .withName(name ?: "Unnamed BuildCommand")
+        .let{ if (log) it.withLog() else it }
 }
 
 /**
