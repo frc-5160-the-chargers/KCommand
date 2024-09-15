@@ -54,23 +54,23 @@ public inline fun buildCommand(
     val subCommands = builder.commands
         .map { if (log) it.withLog("$name/${it.name}") else it }
         .toTypedArray()
-    // modifies the first command to add requirements and reset getOnceDuringRun delegates
-    subCommands[0] = object: WrapperCommand(subCommands[0]) {
-        init {
-            addRequirements(*builder.requirements.toTypedArray())
-        }
+
+    val sequentialCommand = SequentialCommandGroup(*subCommands)
+        .until{ builder.entireCommandStopped }
+        .finallyDo(builder.endBehavior)
+        .withName(name ?: "Unnamed BuildCommand")
+        .let{ if (log) it.withLog() else it }
+
+    return object: WrapperCommand(sequentialCommand) {
+        val allRequirements = (builder.requirements + sequentialCommand.requirements).toMutableSet()
 
         override fun initialize() {
             builder.allDelegates.forEach{ it.reset() }
             super.initialize()
         }
-    }
 
-    return SequentialCommandGroup(*subCommands)
-        .until{ builder.entireCommandStopped }
-        .finallyDo(builder.endBehavior)
-        .withName(name ?: "Unnamed BuildCommand")
-        .let{ if (log) it.withLog() else it }
+        override fun getRequirements(): MutableSet<Subsystem> = allRequirements
+    }
 }
 
 /**
