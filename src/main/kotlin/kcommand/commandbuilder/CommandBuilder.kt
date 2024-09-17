@@ -209,7 +209,7 @@ public open class CommandBuilder {
 
     /**
      * Adds several commands that will run at the same time, all stopping as soon as
-     * the first command specified (the leader) finishes.
+     * the first command specified (the chief) finishes.
      * **Do not use getOnceDuringRun statements in this block.**
      *
      * The [block] below has the context of a [CommandBuilder], meaning that adding commands
@@ -220,7 +220,7 @@ public open class CommandBuilder {
      * @param commands commands to run in parallel
      * @param block a builder allowing more parallel commands to be defined and added
      */
-    public inline fun parallelUntilLeadEnds(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command {
+    public inline fun parallelUntilChiefEnds(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command {
         val commandsArray = getCommandsArray(*commands, block=block)
         if (commandsArray.isNotEmpty()){
             val deadline = commandsArray[0]
