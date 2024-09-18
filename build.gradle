@@ -69,7 +69,7 @@ publishing {
             from components.kotlin
             groupId = 'com.github.frc-5160-the-chargers'
             artifactId = 'KCommand'
-            version = "1.0.0-Beta2"
+            version = "v1.0.0-Beta1"
 
             artifact(sourcesJar)
         }
