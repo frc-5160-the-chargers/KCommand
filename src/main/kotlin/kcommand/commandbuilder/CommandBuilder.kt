@@ -255,6 +255,24 @@ public open class CommandBuilder {
         +ParallelCommandGroup(*getCommandsArray(*commands, block=block))
 
     /**
+     * A [ParallelCommandGroup]; identical to [parallelUntilAllEnd].
+     */
+    public inline fun parallel(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command =
+        parallelUntilAllEnd(*commands, block=block)
+
+    /**
+     * A [ParallelRaceGroup]; identical to [parallelUntilOneEnds].
+     */
+    public inline fun parallelRace(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command =
+        parallelUntilOneEnds(*commands, block=block)
+
+    /**
+     * A [ParallelDeadlineGroup]; identical to [parallelUntilChiefEnds].
+     */
+    public inline fun parallelDeadline(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command =
+        parallelUntilChiefEnds(*commands, block=block)
+
+    /**
      * Adds several commands that will run one after another.
      * These commands can either be specified as a function parameter, or as a builder block
      * within the command builder context [block].
