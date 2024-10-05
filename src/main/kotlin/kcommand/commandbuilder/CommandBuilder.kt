@@ -3,6 +3,7 @@ package kcommand.commandbuilder
 
 import edu.wpi.first.wpilibj.RobotBase
 import edu.wpi.first.wpilibj2.command.*
+import kcommand.internal.DeadlineOfParallelGroup
 import kcommand.internal.MutableConditionalCommand
 import kcommand.internal.reportError
 import kotlin.collections.LinkedHashSet
@@ -104,12 +105,14 @@ public open class CommandBuilder {
      *
      * ```
      * buildCommand{
-     *      loop{ println("hi") }.modify{ it.withTimeout(5) }
+     *      loop{ println("hi") }.and{ withTimeout(5) }
      * }
      */
-    public fun Command.modify(modifier: (Command) -> Command): Command {
+    public fun Command.and(modifier: Command.() -> Command): Command {
         commands.remove(this)
-        val newCommand = modifier(this)
+        var newCommand = this.modifier()
+        // if this command is the deadline of a parallel block, keep it as so
+        if (this is DeadlineOfParallelGroup) newCommand = DeadlineOfParallelGroup(newCommand)
         commands.add(newCommand)
         return newCommand
     }
@@ -189,6 +192,57 @@ public open class CommandBuilder {
         +RunCommand({ CodeBlockContext.execute() })
 
     /**
+     * Marks a command as a deadline in a parallel {} block.
+     * Note that this method **does not do anything in the
+     * parallelRace or runSequence blocks**, or anywhere else
+     * in the buildCommand.
+     */
+    public fun Command.asDeadline(): Command {
+        commands.remove(this)
+        return +DeadlineOfParallelGroup(this)
+    }
+
+    /**
+     * Adds several commands that will run at the same time, only finishing once all are complete.
+     * However, if the asDeadline() method is called on one of the commands, the command group
+     * will instead finish when that command completes.
+     *
+     * The [block] below has the context of a [CommandBuilder], meaning that adding commands
+     * via context methods or the + operator within will add them to the respective parallel command.
+     *
+     * Equivalent to a [ParallelCommandGroup] or [ParallelDeadlineGroup], depending on if asDeadline()
+     * was called on one of the commands.
+     *
+     * ```
+     * parallel { // has a deadline; the parallel block will end when the deadline ends
+     *      +AutoBuilder.followPath().asDeadline()
+     *      +commandThatStopsWhenPathFollowDone
+     * }
+     *
+     * parallel { // does not have a deadline; parallel block will end when all commands end
+     *     +oneCommand
+     *     +anotherCommand
+     * }
+     * ```
+     *
+     * @param commands commands to run in parallel
+     * @param block a builder allowing more parallel commands to be defined and added
+     */
+    public inline fun parallel(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command {
+        var allCommands = getCommandsArray(*commands, block=block)
+        val potentialDeadline = allCommands.firstOrNull { it is DeadlineOfParallelGroup } // calling command.asDeadline() will turn it into a DeadlineCommand; which does the same action(but has a new type so that this code can recognize it as the deadline)
+        if (potentialDeadline !is DeadlineOfParallelGroup) { // if there is no deadline, return a regular parallel command group
+            return +ParallelCommandGroup(*allCommands)
+        } else { // if there is a deadline, return a parallel deadline group instead
+            allCommands = (allCommands.toList() - potentialDeadline).toTypedArray()
+            if (allCommands.any{ it is DeadlineOfParallelGroup }) {
+                reportError("You can only specify one deadline; the other deadlines will be ignored.")
+            }
+            return +ParallelDeadlineGroup(potentialDeadline, *allCommands)
+        }
+    }
+
+    /**
      * Adds several commands that will run at the same time, all stopping as soon as one finishes.
      *
      * The [block] below has the context of a [CommandBuilder], meaning that adding commands
@@ -199,78 +253,15 @@ public open class CommandBuilder {
      * @param commands commands to run in parallel
      * @param block a builder allowing more parallel commands to be defined and added
      */
-    public inline fun parallelUntilOneEnds(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command{
+    public inline fun parallelRace(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command{
         val allCommands = getCommandsArray(*commands, block=block)
         if (allCommands.any{ it is InstantCommand }){
-            error("InstantCommands(or properties delegated by getOnceDuringRun) are not allowed in a parallelUntilOneFinishes block.")
+            error("InstantCommands(or properties delegated by getOnceDuringRun) are not allowed in a parallelRace block.")
+        } else if (allCommands.any{ it is DeadlineOfParallelGroup }){
+            error("parallelRace blocks do not support deadlines(as soon as one command finishes, all others will be interrupted).")
         }
         return +ParallelRaceGroup(*allCommands)
     }
-
-    /**
-     * Adds several commands that will run at the same time, all stopping as soon as
-     * the first command specified (the chief) finishes.
-     * **Do not use getOnceDuringRun statements in this block.**
-     *
-     * The [block] below has the context of a [CommandBuilder], meaning that adding commands
-     * via context methods or the + operator within will add them to the respective parallel command.
-     *
-     * Equivalent to a [ParallelDeadlineGroup].
-     *
-     * @param commands commands to run in parallel
-     * @param block a builder allowing more parallel commands to be defined and added
-     */
-    public inline fun parallelUntilChiefEnds(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command {
-        val commandsArray = getCommandsArray(*commands, block=block)
-        if (commandsArray.isNotEmpty()){
-            val deadline = commandsArray[0]
-            val otherCommands = (listOf(*commandsArray) - deadline).toTypedArray()
-            // we want these to error on the real robot; thus we don't use reportError
-            if (deadline is MutableConditionalCommand && !deadline.onFalseCommandWasSet()) {
-                error("runSequenceIf statements without an orElse block are not allowed to be" +
-                        "the first command/deadline of a parallelUntilLeadFinishes block." +
-                        "Consider adding .orElse{ runOnce{} } at the end to make the deadline more clear.")
-            }else if (deadline is InstantCommand) {
-                error("The first command/deadline of a parallelUntilLeadFinishes block" +
-                        "cannot be an InstantCommand or a getOnceDuringRun delegate.")
-            }
-            return +ParallelDeadlineGroup(deadline, *otherCommands)
-        } else {
-            return InstantCommand()
-        }
-    }
-
-    /**
-     * Adds several commands that will run at the same time, only finishing once all are complete.
-     *
-     * The [block] below has the context of a [CommandBuilder], meaning that adding commands
-     * via context methods or the + operator within will add them to the respective parallel command.
-     *
-     * Equivalent to a [ParallelCommandGroup].
-     *
-     * @param commands commands to run in parallel;
-     * @param block a builder allowing more parallel commands to be defined and added
-     */
-    public inline fun parallelUntilAllEnd(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command =
-        +ParallelCommandGroup(*getCommandsArray(*commands, block=block))
-
-    /**
-     * A [ParallelCommandGroup]; identical to [parallelUntilAllEnd].
-     */
-    public inline fun parallel(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command =
-        parallelUntilAllEnd(*commands, block=block)
-
-    /**
-     * A [ParallelRaceGroup]; identical to [parallelUntilOneEnds].
-     */
-    public inline fun parallelRace(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command =
-        parallelUntilOneEnds(*commands, block=block)
-
-    /**
-     * A [ParallelDeadlineGroup]; identical to [parallelUntilChiefEnds].
-     */
-    public inline fun parallelDeadline(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command =
-        parallelUntilChiefEnds(*commands, block=block)
 
     /**
      * Adds several commands that will run one after another.
@@ -295,7 +286,7 @@ public open class CommandBuilder {
         seconds: Number,
         vararg commands: Command,
         block: CommandBuilder.() -> Unit
-    ): Command = runSequence(*commands, block=block).modify { it.withTimeout(seconds.toDouble()) }
+    ): Command = runSequence(*commands, block=block).and { withTimeout(seconds.toDouble()) }
 
     /**
      * Adds commands that run one after another *until* the [condition] turns true.
@@ -306,7 +297,7 @@ public open class CommandBuilder {
         noinline condition: () -> Boolean,
         vararg commands: Command,
         block: CommandBuilder.() -> Unit
-    ): Command = runSequence(*commands, block=block).modify{ it.until(condition) }
+    ): Command = runSequence(*commands, block=block).and{ until(condition) }
 
     /**
      * Adds commands that run one after another *while* the [condition] is true.
@@ -317,7 +308,7 @@ public open class CommandBuilder {
         noinline condition: () -> Boolean,
         vararg commands: Command,
         block: CommandBuilder.() -> Unit
-    ): Command = runSequence(*commands, block=block).modify { it.onlyWhile(condition) }
+    ): Command = runSequence(*commands, block=block).and { onlyWhile(condition) }
 
     /**
      * Runs a sequence if the [condition] returns true during runtime.
@@ -462,4 +453,11 @@ public open class CommandBuilder {
             this.value = value
         }
     }
+
+    @Deprecated("parallelUntilOneEnds is no longer supported", ReplaceWith("parallelRace{}"), DeprecationLevel.ERROR)
+    public fun parallelUntilOneEnds(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command = error("parallelUntilOneEnds is no longer supported")
+    @Deprecated("parallelUntilAllEnd is no longer supported", ReplaceWith("parallel{}"), DeprecationLevel.ERROR)
+    public fun parallelUntilAllEnd(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command = error("parallelUntilAllEnd is no longer supported")
+    @Deprecated("parallelUntilChiefEnds is no longer supported", ReplaceWith("parallel{ +command.asDeadline() }"), DeprecationLevel.ERROR)
+    public fun parallelUntilChiefEnds(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command = error("parallelUntilChiefEnds is no longer supported")
 }
