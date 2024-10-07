@@ -5,7 +5,7 @@ import edu.wpi.first.wpilibj.RobotBase
 import edu.wpi.first.wpilibj2.command.*
 import kcommand.internal.DeadlineOfParallelGroup
 import kcommand.internal.MutableConditionalCommand
-import kcommand.internal.reportError
+import kcommand.internal.nonBreakingError
 import kotlin.collections.LinkedHashSet
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
@@ -61,7 +61,7 @@ public open class CommandBuilder {
 
     private fun errorIfCommandsModifiedDuringRuntime(){
         if (lockMutation) {
-            reportError(
+            nonBreakingError(
                 """
                 WARNING: 
                 It seems that you are attempting to add a command to the CommandBuilder during runtime. This is not allowed.
@@ -204,13 +204,13 @@ public open class CommandBuilder {
 
     /**
      * Adds several commands that will run at the same time, only finishing once all are complete.
-     * However, if the asDeadline() method is called on one of the commands, the command group
+     * However, if a command is marked as a deadline via the asDeadline() extension method, it
      * will instead finish when that command completes.
      *
      * The [block] below has the context of a [CommandBuilder], meaning that adding commands
-     * via context methods or the + operator within will add them to the respective parallel command.
+     * via context methods or the + operator within will add them to this parallel group.
      *
-     * Equivalent to a [ParallelCommandGroup] or [ParallelDeadlineGroup], depending on if asDeadline()
+     * Equivalent to a [ParallelCommandGroup] or [ParallelDeadlineGroup], depending on if the asDeadline()
      * was called on one of the commands.
      *
      * ```
@@ -229,16 +229,23 @@ public open class CommandBuilder {
      * @param block a builder allowing more parallel commands to be defined and added
      */
     public inline fun parallel(vararg commands: Command, block: CommandBuilder.() -> Unit = {}): Command {
-        var allCommands = getCommandsArray(*commands, block=block)
-        val potentialDeadline = allCommands.firstOrNull { it is DeadlineOfParallelGroup } // calling command.asDeadline() will turn it into a DeadlineCommand; which does the same action(but has a new type so that this code can recognize it as the deadline)
-        if (potentialDeadline !is DeadlineOfParallelGroup) { // if there is no deadline, return a regular parallel command group
-            return +ParallelCommandGroup(*allCommands)
-        } else { // if there is a deadline, return a parallel deadline group instead
-            allCommands = (allCommands.toList() - potentialDeadline).toTypedArray()
-            if (allCommands.any{ it is DeadlineOfParallelGroup }) {
-                reportError("You can only specify one deadline; the other deadlines will be ignored.")
-            }
-            return +ParallelDeadlineGroup(potentialDeadline, *allCommands)
+        val deadlines = mutableListOf<Command>()
+        val otherCommands = mutableListOf<Command>()
+        val allCommands = getCommandsArray(*commands, block=block)
+        for (command in allCommands) {
+            // Command.asDeadline() returns a DeadlineOfParallelGroup command(essentially a newtype)
+            if (command is DeadlineOfParallelGroup) deadlines.add(command) else otherCommands.add(command)
+            this@CommandBuilder.commands.remove(command)
+        }
+        return when (deadlines.size) {
+            // if there is no deadline, return a parallel command group
+            0 -> +ParallelCommandGroup(*allCommands)
+            1 -> +ParallelDeadlineGroup(deadlines[0], *otherCommands.toTypedArray())
+            // if there are multiple deadlines, end the parallel command when all deadlines finish.
+            else -> +ParallelDeadlineGroup(
+                ParallelCommandGroup(*deadlines.toTypedArray()),
+                *otherCommands.toTypedArray()
+            )
         }
     }
 
@@ -246,7 +253,7 @@ public open class CommandBuilder {
      * Adds several commands that will run at the same time, all stopping as soon as one finishes.
      *
      * The [block] below has the context of a [CommandBuilder], meaning that adding commands
-     * via context methods or the + operator within will add them to the respective parallel command.
+     * via context methods or the + operator within will add them to this parallel group.
      *
      * Equivalent to a [ParallelRaceGroup].
      *
@@ -258,7 +265,7 @@ public open class CommandBuilder {
         if (allCommands.any{ it is InstantCommand }){
             error("InstantCommands(or properties delegated by getOnceDuringRun) are not allowed in a parallelRace block.")
         } else if (allCommands.any{ it is DeadlineOfParallelGroup }){
-            error("parallelRace blocks do not support deadlines(as soon as one command finishes, all others will be interrupted).")
+            nonBreakingError("parallelRace blocks do not support deadlines(they will be ignored).")
         }
         return +ParallelRaceGroup(*allCommands)
     }

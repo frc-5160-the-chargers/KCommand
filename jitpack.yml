@@ -1,5 +1,5 @@
 jdk:
-  - openjdk20
+  - openjdk17
 before_install:
   - sdk list
   - sdk update

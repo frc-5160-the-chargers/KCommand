@@ -2,7 +2,7 @@ package kcommand.commandbuilder
 
 import edu.wpi.first.wpilibj.DriverStation
 import edu.wpi.first.wpilibj2.command.*
-import kcommand.internal.reportError
+import kcommand.internal.nonBreakingError
 import kcommand.withLog
 
 /**
@@ -111,7 +111,7 @@ public class BuildCommandScope: CommandBuilder() {
      */
     public fun require(vararg requirements: Subsystem){
         if (lockMutation){
-            reportError("""
+            nonBreakingError("""
                 WARNING: 
                 It looks like you are attempting to add requirements to the buildCommand while it is running.
                 This only happens if you are using an explicit buildCommand receiver(I.E this@buildCommand),
